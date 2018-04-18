@@ -64,6 +64,104 @@ if ( ! class_exists( 'eSputnik_For_Jet_Elements' ) ) {
 			add_action( 'wp_ajax_jet_subscribe_form_ajax', array( $this, 'ajax_subscribe' ), 0 );
 			add_action( 'wp_ajax_nopriv_jet_subscribe_form_ajax', array( $this, 'ajax_subscribe' ), 0 );
 
+			// Add List ID and Send Event controls
+			add_action(
+				'elementor/element/jet-subscribe-form/section_general_style/before_section_start',
+				array( $this, 'register_controls' ),
+				10,
+				2
+			);
+
+			// Pass additiional data into subscribe request
+			add_action(
+				'jet-elements/subscribe-form/input-instance-data',
+				array( $this, 'add_data_to_request' ),
+				10,
+				2
+			);
+
+		}
+
+		public function add_data_to_request( $data, $widget ) {
+
+			$settings = $widget->get_settings();
+
+			if ( ! empty( $settings['es_group_name'] ) ) {
+				$data['es_group_name'] = esc_attr( $settings['es_group_name'] );
+			}
+
+			if ( ! empty( $settings['es_send_event'] ) ) {
+				$data['es_send_event'] = filter_var( $settings['es_send_event'], FILTER_VALIDATE_BOOLEAN );
+			} else {
+				$data['es_send_event'] = false;
+			}
+
+			if ( ! empty( $settings['es_event_name'] ) ) {
+				$data['es_event_name'] = esc_attr( $settings['es_event_name'] );
+			}
+
+			if ( ! empty( $settings['es_event_from'] ) ) {
+				$data['es_event_from'] = esc_attr( $settings['es_event_from'] );
+			}
+
+			return $data;
+
+		}
+
+		public function register_controls( $controls_manager, $args ) {
+
+			$controls_manager->start_controls_section(
+				'section_esputnik_settings',
+				array(
+					'label' => esc_html__( 'eSputnik Settings', 'jet-elements' ),
+				)
+			);
+
+			$controls_manager->add_control(
+				'es_group_name',
+				array(
+					'label' => esc_html__( 'Group Name', 'jet-elements' ),
+					'type'  => Elementor\Controls_Manager::TEXT,
+				)
+			);
+
+			$controls_manager->add_control(
+				'es_send_event',
+				array(
+					'label'        => esc_html__( 'Fire event after successfull subscription', 'jet-elements' ),
+					'type'         => Elementor\Controls_Manager::SWITCHER,
+					'label_on'     => esc_html__( 'Yes', 'jet-elements' ),
+					'label_off'    => esc_html__( 'No', 'jet-elements' ),
+					'return_value' => 'yes',
+					'default'      => 'yes',
+				)
+			);
+
+			$controls_manager->add_control(
+				'es_event_name',
+				array(
+					'label'     => esc_html__( 'Event Name', 'jet-elements' ),
+					'type'      => Elementor\Controls_Manager::TEXT,
+					'condition' => array(
+						'es_send_event' => 'yes',
+					),
+				)
+			);
+
+			$controls_manager->add_control(
+				'es_event_from',
+				array(
+					'label'     => esc_html__( 'Event Source', 'jet-elements' ),
+					'default'   => 'crocoblock',
+					'type'      => Elementor\Controls_Manager::TEXT,
+					'condition' => array(
+						'es_send_event' => 'yes',
+					),
+				)
+			);
+
+			$controls_manager->end_controls_section();
+
 		}
 
 		public function ajax_subscribe() {
@@ -86,6 +184,17 @@ if ( ! class_exists( 'eSputnik_For_Jet_Elements' ) ) {
 			}
 
 			$data = ( ! empty( $_POST['data'] ) ) ? $_POST['data'] : false;
+			$args = isset( $data['data'] ) ? $data['data'] : array();
+
+			$send_event = isset( $args['es_send_event'] ) ? $args['es_send_event'] : true;
+			$send_event = filter_var( $send_event, FILTER_VALIDATE_BOOLEAN );
+			$group      = isset( $args['es_group_name'] ) ? esc_attr( $args['es_group_name'] ) : $this->group;
+			$event_name = isset( $args['es_event_name'] ) ? esc_attr( $args['es_event_name'] ) : 'CrocoSubscribe';
+			$event_from = isset( $args['es_event_from'] ) ? esc_attr( $args['es_event_from'] ) : 'crocoblock';
+
+			if ( ! $send_event ) {
+				$this->send_event = false;
+			}
 
 			if ( ! $data ) {
 				wp_send_json_error( array( 'type' => 'error', 'message' => $messages['server_error'] ) );
@@ -108,8 +217,8 @@ if ( ! class_exists( 'eSputnik_For_Jet_Elements' ) ) {
 				)
 			);
 
-			if ( ! empty( $this->group ) ) {
-				$body['groups'] = array( $this->group );
+			if ( ! empty( $group ) ) {
+				$body['groups'] = array( $group );
 			}
 
 			$response = wp_remote_post(
@@ -132,11 +241,11 @@ if ( ! class_exists( 'eSputnik_For_Jet_Elements' ) ) {
 			if ( true === $this->send_event ) {
 
 				$event = array(
-					'eventTypeKey' => 'CrocoSubscribe',
+					'eventTypeKey' => $event_name,
 					'keyValue'     => $mail,
 					'params'       => array(
 						array(
-							'name'  => 'crocoblock',
+							'name'  => $event_from,
 							'value' => true,
 						),
 						array(
